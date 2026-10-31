@@ -1,0 +1,24 @@
+TFX for macOS: notices
+
+This application is a native macOS implementation of the 1995 DOS game
+TFX (Tactical Fighter Experiment), its program translated from the
+original's. It contains none of the game's files, and none of their
+pictures, sounds, music, levels, missions or tables of game values. The
+translated program keeps the original program's own texts where it uses
+them (its messages, labels, keywords and file names). It runs only with
+the user's own copy of the supported release (Ocean's CD edition, 1995),
+which it reads in place and never modifies. TFX and its
+content belong to their owners (developed by Digital Image Design,
+published by Ocean Software); this build is not affiliated with them.
+
+This is a private build, not for distribution.
+
+Third-party software: none is included. The application uses the
+operating system's own libraries, which are part of macOS and are not
+distributed with it: AppKit, QuartzCore, AudioToolbox, CoreAudio,
+GameController, CommonCrypto and the C library (libSystem). When the
+game's settings select a Roland (MPU-401) music device, its music is
+played by Apple's DLS software synthesizer, part of macOS.
+
+The application's icon is the system's generic one: no icon derived from
+the original's artwork is included.

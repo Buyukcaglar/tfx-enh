@@ -16,6 +16,13 @@ game, and adds a few things the original never had.
 Get `tfx.exe` from the [latest release](../../releases/latest). It is a
 single 64-bit program for Windows 10 and 11; nothing to install.
 
+## Enhanced 3D on the fly
+
+Ctrl+Shift+G switches between the original 320 × 200 3D and the enhanced 3D
+drawn at the window's resolution, while the game runs:
+
+![Switching between the original and the enhanced 3D in flight](docs/media/OnTheFlyGraphicsSwitch.gif)
+
 ## What it does
 
 - **Runs the original game natively.** The game's own logic, flight models,

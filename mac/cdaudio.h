@@ -5,7 +5,8 @@
  * (include/tfx/core.h); after n sectors the position rests at the next
  * track's start, as a drive's would, which is how the game loops its
  * music. The audio (44.1 kHz, 16-bit stereo) is read through a memory
- * map of the image. POSIX. */
+ * map of the image, or from the program's copy of it (TFX.CHD, read a
+ * sector at a time). POSIX. */
 #ifndef TFX_MAC_CDAUDIO_H
 #define TFX_MAC_CDAUDIO_H
 
@@ -24,10 +25,17 @@ typedef struct tfx_mac_cd {
     double frac;                     /* the resampler's position between frames */
     int playing;
     char error[256];
+    /* the program's copy of the disc (TFX.CHD, pack.h) in the map's place */
+    struct tfx_chd *chd;
+    int chd_fd;
+    int32_t sector_at;            /* the sector in sector (-1 none) */
+    uint8_t sector[2352];
 } tfx_mac_cd;
 
 /* opens the image a CUE sheet names; 1 on success (else error says why) */
 int tfx_mac_cd_open(tfx_mac_cd *cd, const char *cue_path);
+/* opens the program's copy of the disc (host/chd.h); 1 on success */
+int tfx_mac_cd_open_chd(tfx_mac_cd *cd, const char *chd_path);
 void tfx_mac_cd_close(tfx_mac_cd *cd);
 /* 1 when the image is the supported release's disc (TFX, Ocean CD, 1995:
  * a data track and 14 audio tracks at its table of contents' sectors,

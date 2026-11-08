@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 
 #include "files.h"
+#include "pack.h"
 
 static const struct known {
     const char *dos;
@@ -52,6 +53,20 @@ int tfx_mac_sha256_file(const char *path, char hex[65]) {
     return ok;
 }
 
+void tfx_mac_sha256_bytes(const void *data, size_t n, char hex[65]) {
+    CC_SHA256_CTX c;
+    CC_SHA256_Init(&c);
+    for (size_t at = 0; at < n;) {
+        size_t k = n - at > (1u << 30) ? (1u << 30) : n - at;
+        CC_SHA256_Update(&c, (const unsigned char *)data + at, (CC_LONG)k);
+        at += k;
+    }
+    unsigned char d[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(d, &c);
+    for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++)
+        snprintf(hex + 2 * i, 3, "%02x", d[i]);
+}
+
 static void fail(tfx_mac_profile *p, tfx_mac_profile_status s, const char *text) {
     if (p->status == TFX_MAC_BASELINE || s < p->status) {
         p->status = s;
@@ -59,17 +74,17 @@ static void fail(tfx_mac_profile *p, tfx_mac_profile_status s, const char *text)
     }
 }
 
-int tfx_mac_profile_check(const char *root, tfx_mac_profile *p) {
-    memset(p, 0, sizeof *p);
-    struct stat st;
-    if (stat(root, &st) || !S_ISDIR(st.st_mode)) {
-        fail(p, TFX_MAC_NOT_FOLDER, "The selected item is not a folder that can be read.");
-        return 0;
-    }
-    char path[TFX_MAC_PATH], text[1024];
+/* a known file's state: 0 absent, 1 present (*size, hex: its digest, or
+ * "" when it cannot be read) */
+typedef int (*probe_fn)(void *ctx, const char *dos, long long *size, char hex[65]);
+
+static int check(probe_fn probe, void *ctx, tfx_mac_profile *p) {
+    char text[1024];
     for (size_t i = 0; i < sizeof KNOWN / sizeof KNOWN[0]; i++) {
         const struct known *k = &KNOWN[i];
-        if (!tfx_mac_resolve(root, k->dos, path, sizeof path, 0) || stat(path, &st) || !S_ISREG(st.st_mode)) {
+        long long size = 0;
+        char hex[65] = "";
+        if (!probe(ctx, k->dos, &size, hex)) {
             p->absent++;
             if (k->required && !strcmp(k->dos, "DID.DAT"))
                 fail(p, TFX_MAC_NOT_GAME,
@@ -83,8 +98,7 @@ int tfx_mac_profile_check(const char *root, tfx_mac_profile *p) {
             }
             continue;
         }
-        char hex[65];
-        if ((long long)st.st_size == k->size && !tfx_mac_sha256_file(path, hex)) {
+        if (size == k->size && !hex[0]) {
             p->differ++;
             if (k->required) {
                 snprintf(text, sizeof text, "%s cannot be read (check the folder's permissions).", k->dos);
@@ -92,13 +106,13 @@ int tfx_mac_profile_check(const char *root, tfx_mac_profile *p) {
             }
             continue;
         }
-        if ((long long)st.st_size != k->size || strcmp(hex, k->sha256)) {
+        if (size != k->size || strcmp(hex, k->sha256)) {
             p->differ++;
             if (k->required) {
                 snprintf(text, sizeof text,
                          "%s differs from the supported release (TFX, Ocean CD edition 1995: %lld bytes, SHA-256 "
                          "%.16s...; this file has %lld bytes). Other editions and modified files are not supported.",
-                         k->dos, k->size, k->sha256, (long long)st.st_size);
+                         k->dos, k->size, k->sha256, size);
                 fail(p, TFX_MAC_UNSUPPORTED, text);
             }
             continue;
@@ -108,4 +122,40 @@ int tfx_mac_profile_check(const char *root, tfx_mac_profile *p) {
     if (p->status == TFX_MAC_BASELINE)
         snprintf(p->edition, sizeof p->edition, "TFX, Ocean CD edition (1995)");
     return p->status == TFX_MAC_BASELINE;
+}
+
+static int probe_folder(void *ctx, const char *dos, long long *size, char hex[65]) {
+    char path[TFX_MAC_PATH];
+    struct stat st;
+    if (!tfx_mac_resolve(ctx, dos, path, sizeof path, 0) || stat(path, &st) || !S_ISREG(st.st_mode))
+        return 0;
+    *size = (long long)st.st_size;
+    if (!tfx_mac_sha256_file(path, hex))
+        hex[0] = 0;
+    return 1;
+}
+
+int tfx_mac_profile_check(const char *root, tfx_mac_profile *p) {
+    memset(p, 0, sizeof *p);
+    struct stat st;
+    if (stat(root, &st) || !S_ISDIR(st.st_mode)) {
+        fail(p, TFX_MAC_NOT_FOLDER, "The selected item is not a folder that can be read.");
+        return 0;
+    }
+    return check(probe_folder, (void *)root, p);
+}
+
+static int probe_pack(void *ctx, const char *dos, long long *size, char hex[65]) {
+    const tfx_mac_pack *pk = ctx;
+    int i = tfx_mac_pack_find(pk, dos);
+    if (i < 0)
+        return 0;
+    *size = pk->size[i];
+    tfx_mac_sha256_bytes(pk->data[i], pk->size[i], hex);
+    return 1;
+}
+
+int tfx_mac_profile_check_pack(const tfx_mac_pack *pack, tfx_mac_profile *p) {
+    memset(p, 0, sizeof *p);
+    return check(probe_pack, (void *)pack, p);
 }

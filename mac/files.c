@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "pack.h"
+
 static const char *relative(const char *dos) {
     if (!strncasecmp(dos, TFX_MAC_DID "\\", sizeof TFX_MAC_DID))
         return dos + sizeof TFX_MAC_DID;
@@ -87,7 +89,20 @@ static FILE *open_read(const tfx_mac_files *f, const char *dos) {
     return NULL;
 }
 
+/* the pack's entry a read sees (the store's file first): -1 none */
+static int pack_read(const tfx_mac_files *f, const char *dos) {
+    char full[TFX_MAC_PATH];
+    struct stat st;
+    if (f->root[0] || !f->pack ||
+        (f->store[0] && tfx_mac_resolve(f->store, dos, full, sizeof full, 0) && !stat(full, &st) && S_ISREG(st.st_mode)))
+        return -1;
+    return tfx_mac_pack_find(f->pack, relative(dos));
+}
+
 uint32_t tfx_mac_size(const tfx_mac_files *f, const char *dos) {
+    int k = pack_read(f, dos);
+    if (k >= 0)
+        return f->pack->size[k];
     FILE *h = open_read(f, dos);
     if (!h)
         return 0;
@@ -98,6 +113,12 @@ uint32_t tfx_mac_size(const tfx_mac_files *f, const char *dos) {
 }
 
 int tfx_mac_read(const tfx_mac_files *f, const char *dos, uint8_t *buf, uint32_t cap) {
+    int k = pack_read(f, dos);
+    if (k >= 0) {
+        uint32_t n = f->pack->size[k] < cap ? f->pack->size[k] : cap;
+        memcpy(buf, f->pack->data[k], n);
+        return n > 0;
+    }
     FILE *h = open_read(f, dos);
     if (!h)
         return 0;
@@ -204,6 +225,39 @@ int tfx_mac_find(const tfx_mac_files *f, const char *pattern, uint16_t attr, uin
         }
         if (d)
             closedir(d);
+        qsort(names[first], n - first, sizeof names[0], by_name);
+    }
+    if (!f->root[0] && f->pack) { /* the pack's in the originals' place: its files, its folders implied */
+        char want[TFX_MAC_PATH];
+        size_t wl;
+        uint32_t first = n;
+        snprintf(want, sizeof want, "%s", relative(dir));
+        for (char *q = want; *q; q++)
+            if (*q == '\\')
+                *q = '/';
+        while ((wl = strlen(want)) && want[wl - 1] == '/')
+            want[wl - 1] = 0;
+        for (int i = 0; i < f->pack->count && n < 512; i++) {
+            const char *e = f->pack->name[i];
+            if (wl && (strncasecmp(e, want, wl) || e[wl] != '/'))
+                continue;
+            const char *rest = e + (wl ? wl + 1 : 0), *slash = strchr(rest, '/');
+            size_t len = slash ? (size_t)(slash - rest) : strlen(rest);
+            char part[13];
+            if (!len || len > 12 || (slash && !(attr & 0x10)))
+                continue;
+            memcpy(part, rest, len);
+            part[len] = 0;
+            if (!tfx_mac_match(b, part))
+                continue;
+            for (size_t j = 0; j <= len; j++)
+                part[j] = (char)toupper((unsigned char)part[j]);
+            int dup = 0;
+            for (uint32_t j = 0; j < n && !dup; j++)
+                dup = !strcmp(names[j], part);
+            if (!dup)
+                memcpy(names[n++], part, 13);
+        }
         qsort(names[first], n - first, sizeof names[0], by_name);
     }
     if (k >= n)

@@ -10,7 +10,8 @@
  * the store only, by the path's last component, written to a temporary
  * file and renamed over the old one, so a failed write keeps the previous
  * contents. A search lists the store's matches, then the originals' not
- * already listed. POSIX only: the Windows host has its own. */
+ * already listed. The originals can instead be the program's own copy of
+ * them (pack.h: TFX.ZIP, inflated in memory). POSIX only: the Windows host has its own. */
 #ifndef TFX_MAC_FILES_H
 #define TFX_MAC_FILES_H
 
@@ -19,9 +20,14 @@
 
 #define TFX_MAC_PATH 1024
 
+struct tfx_mac_pack;
+
 typedef struct tfx_mac_files {
     char root[TFX_MAC_PATH];  /* the original game folder (never written) */
     char store[TFX_MAC_PATH]; /* the user store (created when missing) */
+    /* the program's copy of the game's files (pack.h), read in the
+     * originals' place when root is empty; NULL: none */
+    const struct tfx_mac_pack *pack;
 } tfx_mac_files;
 
 /* the DID variable the game's paths start from */

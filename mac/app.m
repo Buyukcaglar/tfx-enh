@@ -24,7 +24,18 @@
  * (or View > Enhanced 3D; --enhanced starts in it) toggles the enhanced 3D
  * mode, not the original's: the world drawn at the frame rectangle's own
  * size in backing pixels (render/hires.h, as the Windows host), named for
- * 2 s by a note at the picture's top right. */
+ * 2 s by a note at the picture's top right.
+ *
+ * The program's own copies (an addition, at the user's request, as the
+ * Windows host's GAME folder; pack.h): the first start from a folder packs
+ * its game files into Application Support/TFX/Content/TFX.ZIP, a CD image
+ * chosen is converted once into Content/TFX.CHD, and later starts read
+ * those, the folder and the image no longer needed (Choose Game Folder or
+ * Choose CD Image again copies again when they differ). Saves stay in Game.
+ * Runs given TFX_ORIGINAL_DIR (the checks) read the folder as before unless
+ * --pack; --no-pack always reads the folder. TFX > About TFX: the program's
+ * credits, the project's link and the licence (as the Windows host's About
+ * box), the game held meanwhile. */
 #import <AppKit/AppKit.h>
 #import <GameController/GameController.h>
 #import <QuartzCore/QuartzCore.h>
@@ -36,6 +47,7 @@
 #include "gamepad.h"
 #include "keymap.h"
 #include "output.h"
+#include "pack.h"
 #include "present.h"
 #include "profile.h"
 #include "session.h"
@@ -386,14 +398,32 @@ static void release_pixels(void *info, const void *data, size_t size) { (void)in
     tfx_mac_profile _profile;
     GCController *_pad;
     tfx_mac_cd _cd;
-    NSString *_cdPath; /* the CD image's cue sheet, nil: none */
+    NSString *_cdPath; /* the CD image's cue sheet (or the program's copy, TFX.CHD), nil: none */
+    tfx_mac_pack _pack; /* the program's copy of the game's files (Content/TFX.ZIP), count 0: the folder read */
+    BOOL _copies;       /* the copies in Content kept and used (not TFX_ORIGINAL_DIR's checks, nor --no-pack) */
     BOOL _paused;      /* the settings open */
     uint64_t _shown;   /* the frames shown since the start (logged: the first, and at the end) */
     CFAbsoluteTime _startedAt;
     dispatch_source_t _sigterm;
 }
 
-static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
+static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage", *const kNoCD = @"PlayWithoutCD";
+
+/* ---- the program's own copies (pack.h): Content/TFX.ZIP and TFX.CHD ---- */
+
+static NSString *zip_path(void) { return [support_folder(@"Content") stringByAppendingPathComponent:@"TFX.ZIP"]; }
+static NSString *chd_path(void) { return [support_folder(@"Content") stringByAppendingPathComponent:@"TFX.CHD"]; }
+
+typedef struct work_state {
+    _Atomic unsigned done, total;
+    _Atomic int finished;
+} work_state;
+
+static void work_progress(void *ctx, unsigned done, unsigned total) {
+    work_state *w = ctx;
+    w->total = total;
+    w->done = done;
+}
 
 /* the profile of folder d (logged); nil when it is the supported release, else what is wrong */
 - (NSString *)problemWith:(NSString *)d {
@@ -454,6 +484,131 @@ static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
 
 - (NSString *)storeFolder { return support_folder(@"Game"); }
 
+/* work (on another thread) while a small panel shows text and its
+ * progress, the game held meanwhile; work's result */
+- (int)work:(NSString *)text run:(int (^)(tfx_mac_pack_progress progress, void *ctx))work {
+    BOOL held = _paused;
+    _paused = YES;
+    clock_pause(YES);
+    [_view releaseKeys];
+    NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 440, 96)
+                                                styleMask:NSWindowStyleMaskTitled
+                                                  backing:NSBackingStoreBuffered
+                                                    defer:NO];
+    panel.title = @"TFX";
+    NSTextField *label = [NSTextField wrappingLabelWithString:text];
+    label.frame = NSMakeRect(20, 44, 400, 40);
+    NSProgressIndicator *bar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(20, 16, 400, 20)];
+    bar.indeterminate = NO;
+    bar.minValue = 0, bar.maxValue = 1;
+    [panel.contentView addSubview:label];
+    [panel.contentView addSubview:bar];
+    [panel center];
+    work_state *w = calloc(1, sizeof *w);
+    __block int result = 0;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      result = work(work_progress, w);
+      w->finished = 1;
+    });
+    NSModalSession ms = [NSApp beginModalSessionForWindow:panel];
+    while (!w->finished) {
+        [NSApp runModalSession:ms];
+        unsigned total = w->total;
+        bar.doubleValue = total ? (double)w->done / total : 0;
+        [NSThread sleepForTimeInterval:0.05];
+    }
+    [NSApp endModalSession:ms];
+    [panel orderOut:nil];
+    free(w);
+    if (!held) {
+        clock_pause(NO);
+        _paused = NO;
+    }
+    return result;
+}
+
+/* the copy of the game's files opened and checked; NO (none) when it cannot be */
+- (BOOL)openPack {
+    if (_session.core)
+        tfx_mac_session_stop(&_session); /* (the session reads the pack) */
+    tfx_mac_pack_free(&_pack);
+    char err[256] = "";
+    tfx_mac_profile p;
+    if (!tfx_mac_pack_load(&_pack, zip_path().fileSystemRepresentation, err, sizeof err)) {
+        log_line([NSString stringWithFormat:@"game files' copy %@: %s", zip_path(), err]);
+        return NO;
+    }
+    if (!tfx_mac_profile_check_pack(&_pack, &p)) {
+        log_line([NSString stringWithFormat:@"game files' copy %@: %s", zip_path(), p.message]);
+        tfx_mac_pack_free(&_pack);
+        return NO;
+    }
+    _profile = p;
+    log_line([NSString stringWithFormat:@"game files' copy %@: %s (known files: %d same, %d different, %d absent)",
+                                        zip_path(), p.edition, p.matched, p.differ, p.absent]);
+    return YES;
+}
+
+/* the folder (which passed the profile) packed into the copy, unless the
+ * copy already holds it, and the copy opened; NO: the folder read itself */
+- (BOOL)packFolder:(NSString *)folder {
+    const char *dir = folder.fileSystemRepresentation, *zip = zip_path().fileSystemRepresentation;
+    if (!tfx_mac_pack_zip_matches(dir, zip)) {
+        if (_session.core)
+            tfx_mac_session_stop(&_session);
+        tfx_mac_pack_free(&_pack);
+        char errs[256] = "", *err = errs;
+        log_line([NSString stringWithFormat:@"packing %@ into %@", folder, zip_path()]);
+        int ok = [self work:@"Copying the game's files (TFX.ZIP, kept in TFX's Application Support folder)…"
+                        run:^int(tfx_mac_pack_progress progress, void *ctx) {
+                          (void)progress, (void)ctx;
+                          return tfx_mac_pack_zip(dir, zip, err, sizeof errs);
+                        }];
+        if (!ok) {
+            log_line([NSString stringWithFormat:@"the copy could not be made (%s): the folder is read", err]);
+            return NO;
+        }
+    }
+    return [self openPack];
+}
+
+/* the CD image at cue, already checked, converted into the copy (unless
+ * the copy already holds it); YES: the copy made or there */
+- (BOOL)packCD:(NSString *)cue {
+    const char *sheet = cue.fileSystemRepresentation, *chd = chd_path().fileSystemRepresentation;
+    if (tfx_mac_pack_chd_matches(sheet, chd))
+        return YES;
+    char errs[256] = "", *err = errs;
+    log_line([NSString stringWithFormat:@"converting %@ into %@", cue, chd_path()]);
+    CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent();
+    int ok = [self work:@"Copying the CD image (TFX.CHD, kept in TFX's Application Support folder). This is done once."
+                    run:^int(tfx_mac_pack_progress progress, void *ctx) {
+                      return tfx_mac_pack_chd(sheet, chd, progress, ctx, err, sizeof errs);
+                    }];
+    log_line(ok ? [NSString stringWithFormat:@"CD copy made in %.1f s", CFAbsoluteTimeGetCurrent() - t0]
+                : [NSString stringWithFormat:@"the CD copy could not be made (%s): the image is read", err]);
+    return ok != 0;
+}
+
+/* the program's copy of the CD opened and checked; NO (none) when it cannot be */
+- (BOOL)useCDCopy {
+    pthread_mutex_lock(&_mixer.lock);
+    _mixer.cd = NULL;
+    pthread_mutex_unlock(&_mixer.lock);
+    if (_cdPath)
+        tfx_mac_cd_close(&_cd);
+    _cdPath = nil;
+    NSString *path = chd_path();
+    if (!tfx_mac_cd_open_chd(&_cd, path.fileSystemRepresentation) || !tfx_mac_cd_profile(&_cd)) {
+        log_line([NSString stringWithFormat:@"CD copy %@: %s", path, _cd.error]);
+        tfx_mac_cd_close(&_cd);
+        return NO;
+    }
+    _cdPath = path;
+    log_line([NSString stringWithFormat:@"CD copy %@: TFX, Ocean CD (1995), %d tracks", path, _cd.tracks]);
+    return YES;
+}
+
 /* starts the game on folder (stopping a run under way); NO when the core does not start */
 - (BOOL)startOn:(NSString *)folder {
     if (_session.core)
@@ -469,8 +624,11 @@ static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
     _folder = folder;
     _ended = NO;
     _shown = 0, _startedAt = CFAbsoluteTimeGetCurrent();
-    log_line([NSString stringWithFormat:@"start: %@, store %@, %@", folder, [self storeFolder], architecture()]);
-    return tfx_mac_session_start(&_session, folder.fileSystemRepresentation, [self storeFolder].fileSystemRepresentation) != 0;
+    _session.files.pack = _pack.count ? &_pack : NULL;
+    log_line([NSString stringWithFormat:@"start: %@, store %@, %@", _pack.count ? zip_path() : folder, [self storeFolder],
+                                        architecture()]);
+    return tfx_mac_session_start(&_session, _pack.count ? "" : folder.fileSystemRepresentation,
+                                 [self storeFolder].fileSystemRepresentation) != 0;
 }
 
 /* the reason shown (the session's: the store, say), then the app ends */
@@ -510,7 +668,14 @@ static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
     }
     _cdPath = path;
     log_line([NSString stringWithFormat:@"CD image %@: TFX, Ocean CD (1995), %d tracks", path, _cd.tracks]);
-    return YES;
+    if (!_copies || ![self packCD:path] || [self useCDCopy])
+        return YES; /* (the image itself, or its copy) */
+    if (tfx_mac_cd_open(&_cd, path.fileSystemRepresentation) && tfx_mac_cd_profile(&_cd)) {
+        _cdPath = path; /* (the copy unreadable: the image again) */
+        return YES;
+    }
+    tfx_mac_cd_close(&_cd);
+    return NO;
 }
 
 - (void)chooseCD:(id)sender {
@@ -520,14 +685,17 @@ static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
     if ([panel runModal] != NSModalResponseOK)
         return;
     NSString *path = panel.URL.path;
-    if ([self useCD:path tell:YES])
+    if ([self useCD:path tell:YES]) {
         [NSUserDefaults.standardUserDefaults setObject:path forKey:kCD];
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:kNoCD];
+    }
     if (![self startOn:_folder])
         [self couldNotStart];
 }
 
 - (void)noCD:(id)sender {
     [NSUserDefaults.standardUserDefaults removeObjectForKey:kCD];
+    [NSUserDefaults.standardUserDefaults setBool:YES forKey:kNoCD]; /* (the copy kept, not played) */
     [self useCD:nil tell:NO];
     if (![self startOn:_folder])
         [self couldNotStart];
@@ -535,16 +703,21 @@ static NSString *const kFolder = @"OriginalFolder", *const kCD = @"CDImage";
 
 - (void)chooseFolder:(id)sender {
     NSString *d = [self askFolderAfter:nil];
-    if (d && ![self startOn:d])
+    if (!d)
+        return;
+    if (_copies && ![self packFolder:d])
+        tfx_mac_pack_free(&_pack); /* (the folder read itself) */
+    if (![self startOn:d])
         [self couldNotStart];
 }
 
 /* ---- the user's data (M07, userdata.h) ---- */
 
 - (tfx_mac_files)files {
-    tfx_mac_files f;
-    snprintf(f.root, sizeof f.root, "%s", _folder ? _folder.fileSystemRepresentation : "");
+    tfx_mac_files f = {{0}, {0}, NULL};
+    snprintf(f.root, sizeof f.root, "%s", _folder && !_pack.count ? _folder.fileSystemRepresentation : "");
     snprintf(f.store, sizeof f.store, "%s", [self storeFolder].fileSystemRepresentation);
+    f.pack = _pack.count ? &_pack : NULL;
     return f;
 }
 
@@ -702,7 +875,8 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
         @"TFX %@ (%@), %@, macOS %@\nGame folder: %@\nEdition: %s (known files: %d same, %d different, %d absent)\n"
         @"CD image: %@\nSound: %s\nMIDI synthesizer: %@\nUser data: %@\nLog: %@",
         version ? version : @"?", build ? build : @"?", architecture(),
-        NSProcessInfo.processInfo.operatingSystemVersionString, _folder ? _folder : @"none", _profile.edition, _profile.matched,
+        NSProcessInfo.processInfo.operatingSystemVersionString,
+        _pack.count ? [NSString stringWithFormat:@"%@ (TFX's copy, from %@)", zip_path(), _folder] : _folder ? _folder : @"none", _profile.edition, _profile.matched,
         _profile.differ, _profile.absent, _cdPath ? _cdPath : @"none", _session.audio,
         tfx_mac_output_synth(_output) ? @"Apple DLS" : @"none (the MPU-401's music is silent)", support_folder(@"Game"),
         [support_folder(@"Logs") stringByAppendingPathComponent:@"TFX.log"]];
@@ -717,9 +891,76 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
     }
 }
 
+/* About (an addition, as the Windows host's About box: src/win/theme.c):
+ * the program's icon, its credits, the link to the project's repository,
+ * the licence of the program's own code with the note that the original
+ * game is not part of it, and OK; the game held meanwhile */
+static NSString *const kAboutURL = @"https://github.com/Buyukcaglar/tfx-enh"; /* (the public repository: TFX Enhanced) */
+static NSString *const kLicense =
+    @"MIT License\n\n"
+    @"Copyright (c) 2026 Onur BUYUKCAGLAR\n\n"
+    @"Permission is hereby granted, free of charge, to any person obtaining a copy of this "
+    @"software and associated documentation files (the \"Software\"), to deal in the Software "
+    @"without restriction, including without limitation the rights to use, copy, modify, merge, "
+    @"publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons "
+    @"to whom the Software is furnished to do so, subject to the following conditions:\n\n"
+    @"The above copyright notice and this permission notice shall be included in all copies or "
+    @"substantial portions of the Software.\n\n"
+    @"THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, "
+    @"INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR "
+    @"PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE "
+    @"FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR "
+    @"OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER "
+    @"DEALINGS IN THE SOFTWARE.\n\n"
+    @"The licence covers this port's own code (TFX for macOS). TFX, its program and its data "
+    @"belong to their owners; they are not part of this software, which needs a copy of the "
+    @"original game to run.";
+
+- (void)about:(id)sender {
+    [self paused:^BOOL {
+      NSString *version = NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"];
+      NSAlert *a = [NSAlert new];
+      a.messageText = [NSString stringWithFormat:@"About TFX v%@", version.length ? version : @"?"];
+      a.informativeText = @"64bit version by Onur BUYUKCAGLAR\nwith Anthropic Claude AI assistance";
+      a.icon = NSApp.applicationIconImage;
+      NSFont *small = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+      NSTextField *link = [NSTextField labelWithAttributedString:[[NSAttributedString alloc]
+                                                                   initWithString:kAboutURL
+                                                                       attributes:@{NSLinkAttributeName : [NSURL URLWithString:kAboutURL],
+                                                                                    NSFontAttributeName : small}]];
+      link.allowsEditingTextAttributes = YES; /* (the link clickable) */
+      link.selectable = YES;
+      NSTextField *heading = [NSTextField labelWithString:@"Licenses:"];
+      heading.font = small;
+      NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 360, 150)];
+      scroll.hasVerticalScroller = YES;
+      scroll.borderType = NSBezelBorder;
+      NSTextView *text = [[NSTextView alloc] initWithFrame:scroll.bounds];
+      text.editable = NO;
+      text.font = small;
+      text.string = kLicense;
+      text.textContainerInset = NSMakeSize(4, 4);
+      text.autoresizingMask = NSViewWidthSizable;
+      scroll.documentView = text;
+      NSView *box = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 202)];
+      link.frame = NSMakeRect(0, 184, 360, 16);
+      heading.frame = NSMakeRect(0, 156, 360, 16);
+      [box addSubview:link];
+      [box addSubview:heading];
+      [box addSubview:scroll];
+      a.accessoryView = box;
+      [a addButtonWithTitle:@"OK"];
+      [a runModal];
+      return NO;
+    }];
+    [_window makeKeyAndOrderFront:nil];
+}
+
 - (void)menus {
     NSMenu *bar = [NSMenu new], *app = [NSMenu new], *file = [NSMenu new], *view = [NSMenu new];
     NSMenuItem *appItem = [bar addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    [app addItemWithTitle:@"About TFX" action:@selector(about:) keyEquivalent:@""].target = self;
+    [app addItem:NSMenuItem.separatorItem];
     [app addItemWithTitle:@"Settings…" action:@selector(settings:) keyEquivalent:@","].target = self;
     [app addItemWithTitle:@"Support Information" action:@selector(supportInfo:) keyEquivalent:@""].target = self;
     [app addItem:NSMenuItem.separatorItem];
@@ -768,10 +1009,25 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
     });
     dispatch_resume(_sigterm);
     [self menus];
-    NSString *folder = [self gameFolder];
-    if (!folder) {
-        [NSApp terminate:nil];
-        return;
+    /* the copies (an addition, as the Windows host's GAME folder): the
+     * game's files from Content/TFX.ZIP and the CD from TFX.CHD, made from
+     * the folder and the sheet the first time; TFX_ORIGINAL_DIR's runs
+     * (the checks) read the folder unless --pack, and --no-pack reads it */
+    NSArray *args = NSProcessInfo.processInfo.arguments;
+    const char *dir_env = getenv("TFX_ORIGINAL_DIR");
+    _copies = ![args containsObject:@"--no-pack"] && (!dir_env || [args containsObject:@"--pack"]);
+    NSString *folder = nil;
+    if (_copies && !dir_env && [self openPack]) {
+        NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kFolder];
+        folder = last ? last : zip_path();
+    } else {
+        folder = [self gameFolder];
+        if (!folder) {
+            [NSApp terminate:nil];
+            return;
+        }
+        if (_copies)
+            [self packFolder:folder];
     }
     tfx_mac_mixer_init(&_mixer, TFX_MAC_OUTPUT_RATE, 60000);
     _output = tfx_mac_output_open(&_mixer, game_now);
@@ -782,7 +1038,11 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
     const char *cd_env = getenv("TFX_CD_IMAGE");
     NSString *cd = cd_env ? [NSString stringWithUTF8String:cd_env]
                           : [NSUserDefaults.standardUserDefaults stringForKey:kCD];
-    if (cd && ![self useCD:cd tell:NO] && !cd_env)
+    BOOL copied = NO;
+    if (_copies && !cd_env && ![NSUserDefaults.standardUserDefaults boolForKey:kNoCD] &&
+        [NSFileManager.defaultManager fileExistsAtPath:chd_path()])
+        copied = [self useCDCopy]; /* (made before: the sheet no longer needed) */
+    if (!copied && cd && ![self useCD:cd tell:NO] && !cd_env)
         [NSUserDefaults.standardUserDefaults removeObjectForKey:kCD];
     if (![self startOn:folder]) {
         [self couldNotStart];
@@ -871,9 +1131,7 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
         tfx_mac_pad_counts(&(tfx_mac_pad){0}, centre, &buttons);
         tfx_stick(_session.core, _pad != nil, centre, 0);
     }
-    tfx_mac_files f;
-    snprintf(f.root, sizeof f.root, "%s", _folder.fileSystemRepresentation);
-    snprintf(f.store, sizeof f.store, "%s", [self storeFolder].fileSystemRepresentation);
+    tfx_mac_files f = [self files];
     __weak TFXApp *me = self;
     TFXSettings *s = [[TFXSettings alloc] initWithFiles:f
                                                     pad:^BOOL(tfx_mac_pad *p) { return [me readPad:p]; }
@@ -928,6 +1186,7 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
     tfx_mac_output_close(_output);
     _output = NULL;
     [self useCD:nil tell:NO];
+    tfx_mac_pack_free(&_pack);
     if (_activity)
         [NSProcessInfo.processInfo endActivity:_activity];
 }

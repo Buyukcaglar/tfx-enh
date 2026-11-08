@@ -21,9 +21,10 @@ The bundle contains no original resources and no icon derived from them.
 | `present.c` | the frame's placement (M03): 4:3 fit or whole multiples (Integer Scaling), the DAC's 6 to 8 bits |
 | `gamepad.c` | a game controller as the game port's joystick (M04): sticks, trigger, d-pad and buttons as the one-shots' counts |
 | `settings.c` | the settings (M06): TFX.CFG through the recovered CONFIG (defaults, System Check's rules on native measurements, its writer into the store), CONFIG's joystick read over the controller, About's text from the user's CONFIG.EXE, the sound devices' descriptions |
+| `pack.c` | the program's own copies (an addition, as the Windows host's GAME folder): the game folder's profile files into `Content/TFX.ZIP` (`host/zip.h`), inflated in memory and read in the folder's place by `files.c`; the CD image into `Content/TFX.CHD` (`host/chd.h`, its hunks compressed on every core), played by `cdaudio.c` a sector at a time; each written to `NAME.new` and renamed |
 | `userdata.c` | the user's data (M07): the game's writable files checked with the recovered formats, imported from and exported to folders, previous versions restored |
 | `settings_ui.m` | the settings window (M06, TFX > Settings…, Command-comma): CONFIG's main screen, System Check, the joystick calibration screens on the controller, the Sound Blaster's fields, About, the boot disk explained, Export, Cancel, Save |
-| `app.m` | AppKit: the game folder and its diagnostics, window and layer (4:3 letterbox, nearest filtering), keys, mouse, the controller, menus, full screen, the enhanced 3D mode (Control-Shift-G), the support information, the log, the 1 ms pump |
+| `app.m` | AppKit: the game folder and its diagnostics, the copies (Content), About TFX, window and layer (4:3 letterbox, nearest filtering), keys, mouse, the controller, menus, full screen, the enhanced 3D mode (Control-Shift-G), the support information, the log, the 1 ms pump |
 | `headless.c` | `tfx_headless`: the session on a virtual clock, with a hash of every frame (two slices or machines giving the same hashes run the game the same), input at frames or milliseconds (M08) |
 | `Info.plist.in` | the bundle's property list (identifier `local.tfx.native`, macOS 11 or later) |
 
@@ -106,8 +107,9 @@ lists the sources' string literals the originals also hold;
 `tools/mac/m12/clean_run.sh <zip> <game folder> <work dir>` runs the
 package on both slices with a fresh home (analysis/m12/README.md).
 
-Notarization needs the user's Developer ID; it is not done here. With
-one, sign the bundle with the hardened runtime and a timestamp, submit
+Notarization needs the user's Developer ID. It is not part of
+`package.sh`: the reproducible package is signed ad hoc. The release of
+b809d60 was notarized this way (analysis/m13, "Notarization"). With one, sign the bundle with the hardened runtime and a timestamp, submit
 it, then staple the ticket. TFX needs no entitlements: it loads no
 plug-ins and no third-party libraries.
 

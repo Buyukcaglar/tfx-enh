@@ -264,7 +264,7 @@ int tfx_mac_user_export(const tfx_mac_files *f, const char *dir, tfx_mac_user_re
         size_t len = 0;
         uint8_t *b = slurp(from, &len);
         /* (written as the store's writes are: beside it, then renamed) */
-        tfx_mac_files out = {{0}, {0}};
+        tfx_mac_files out = {{0}, {0}, NULL};
         snprintf(out.store, sizeof out.store, "%s", dir);
         int ok = b && tfx_mac_write(&out, up, b, (uint32_t)len);
         written += ok;

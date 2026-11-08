@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "host/chd.h"
+
 #define SECTOR 2352
 
 static int fail(tfx_mac_cd *cd, const char *what, const char *detail) {
@@ -108,9 +110,48 @@ int tfx_mac_cd_profile(tfx_mac_cd *cd) {
     return 1;
 }
 
+static int chd_read(void *ctx, uint64_t offset, void *buf, size_t n) {
+    return pread(*(int *)ctx, buf, n, (off_t)offset) == (ssize_t)n;
+}
+
+int tfx_mac_cd_open_chd(tfx_mac_cd *cd, const char *chd_path) {
+    memset(cd, 0, sizeof *cd);
+    cd->chd_fd = open(chd_path, O_RDONLY);
+    if (cd->chd_fd < 0)
+        return fail(cd, "The copy of the CD cannot be opened", chd_path);
+    char err[200];
+    if (!(cd->chd = calloc(1, sizeof *cd->chd)) || !tfx_chd_open(cd->chd, chd_read, &cd->chd_fd, err, sizeof err)) {
+        const char *why = cd->chd ? err : "out of memory";
+        free(cd->chd);
+        close(cd->chd_fd);
+        memset(cd, 0, sizeof *cd);
+        return fail(cd, "The copy of the CD cannot be read", why);
+    }
+    tfx_cd_image img;
+    tfx_chd_cd_image(cd->chd, &img);
+    for (int i = 0; i < img.n_tracks && i < TFX_CD_TRACKS; i++)
+        if (img.track[i].number == i + 1) {
+            cd->tracks = i + 1;
+            cd->start[i + 1] = img.track[i].lba;
+            cd->audio[i + 1] = (uint8_t)(img.track[i].audio != 0);
+        }
+    cd->start[cd->tracks + 1] = img.end_lba;
+    cd->sector_at = -1;
+    if (!cd->tracks) {
+        tfx_mac_cd_close(cd);
+        return fail(cd, "The copy of the CD names no tracks", chd_path);
+    }
+    return 1;
+}
+
 void tfx_mac_cd_close(tfx_mac_cd *cd) {
     if (cd->image)
         munmap((void *)cd->image, (size_t)cd->size);
+    if (cd->chd) {
+        tfx_chd_close(cd->chd);
+        free(cd->chd);
+        close(cd->chd_fd);
+    }
     memset(cd, 0, sizeof *cd);
 }
 
@@ -125,8 +166,9 @@ void tfx_mac_cd_play(tfx_mac_cd *cd, int32_t from, int32_t n) {
     cd->pos = from, cd->end = from + n > last ? last : from + n;
     cd->sample = 0, cd->frac = 0.0;
     cd->playing = 1;
-    madvise((void *)(cd->image + (long long)from * SECTOR - ((long long)from * SECTOR) % 16384),
-            (size_t)(cd->end - from) * SECTOR, MADV_WILLNEED);
+    if (cd->image)
+        madvise((void *)(cd->image + (long long)from * SECTOR - ((long long)from * SECTOR) % 16384),
+                (size_t)(cd->end - from) * SECTOR, MADV_WILLNEED);
 }
 
 void tfx_mac_cd_stop(tfx_mac_cd *cd) { cd->playing = 0; }
@@ -139,13 +181,26 @@ int tfx_mac_cd_heard(const tfx_mac_cd *cd) {
 }
 
 /* the 44.1 kHz frame k after the current one, as floats (silence past the end) */
-static void frame(const tfx_mac_cd *cd, int k, float *l, float *r) {
+static void frame(tfx_mac_cd *cd, int k, float *l, float *r) {
     long long at = (long long)cd->pos * SECTOR + (long long)(cd->sample + (uint32_t)k) * 4;
     if (at + 4 > (long long)cd->end * SECTOR || cd->audio[tfx_mac_cd_heard(cd)] == 0) {
         *l = *r = 0.0f;
         return;
     }
-    const uint8_t *p = cd->image + at;
+    const uint8_t *p;
+    if (cd->image)
+        p = cd->image + at;
+    else { /* (the copy: the sector read whole, kept for its 588 frames) */
+        int32_t s = (int32_t)(at / SECTOR);
+        if (s != cd->sector_at) {
+            if (tfx_chd_cd_read(cd->chd, (uint64_t)s * SECTOR, cd->sector, SECTOR) != SECTOR) {
+                *l = *r = 0.0f;
+                return;
+            }
+            cd->sector_at = s;
+        }
+        p = cd->sector + at % SECTOR;
+    }
     *l = (float)(int16_t)(p[0] | p[1] << 8) / 32768.0f;
     *r = (float)(int16_t)(p[2] | p[3] << 8) / 32768.0f;
 }

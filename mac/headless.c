@@ -32,12 +32,18 @@
  * TFX_HEADLESS_ENHANCED=<w>x<h> turns the enhanced 3D mode on at that size
  * (render/hires.h; the app's Ctrl+Shift+G): each frame's enhanced picture
  * is hashed apart ("enhanced" line) and dumped beside the frame
- * (<name>_hi.ppm); the frames' hashes must stay those of a run without it. */
+ * (<name>_hi.ppm); the frames' hashes must stay those of a run without it.
+ * The program's own copies (pack.h): a game folder ending in .zip is read
+ * as TFX.ZIP (its files in the folder's place, the profile checked on
+ * them), a TFX_HEADLESS_CUE ending in .chd as TFX.CHD; the frames' and the
+ * sound's hashes must be those of the folder and the sheet. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
+#include "pack.h"
 #include "profile.h"
 #include "session.h"
 
@@ -130,7 +136,15 @@ int main(int argc, char **argv) {
     }
     long limit = atol(argv[3]);
     tfx_mac_profile prof;
-    if (!tfx_mac_profile_check(argv[1], &prof)) {
+    static tfx_mac_pack pack;
+    size_t al = strlen(argv[1]);
+    int zipped = al > 4 && !strcasecmp(argv[1] + al - 4, ".zip");
+    char why[256] = "";
+    if (zipped && !tfx_mac_pack_load(&pack, argv[1], why, sizeof why)) {
+        fprintf(stderr, "%s\n", why);
+        return 3;
+    }
+    if (zipped ? !tfx_mac_profile_check_pack(&pack, &prof) : !tfx_mac_profile_check(argv[1], &prof)) {
         fprintf(stderr, "%s\n", prof.message);
         return 3;
     }
@@ -145,7 +159,9 @@ int main(int argc, char **argv) {
         s.mixer = &mix;
     }
     if (cue) {
-        if (!tfx_mac_cd_open(&cd, cue) || !tfx_mac_cd_profile(&cd)) {
+        size_t cl = strlen(cue);
+        int chd = cl > 4 && !strcasecmp(cue + cl - 4, ".chd");
+        if (!(chd ? tfx_mac_cd_open_chd(&cd, cue) : tfx_mac_cd_open(&cd, cue)) || !tfx_mac_cd_profile(&cd)) {
             fprintf(stderr, "%s\n", cd.error);
             return 3;
         }
@@ -156,7 +172,8 @@ int main(int argc, char **argv) {
         fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x80\xbb\0\0\0\xee\x02\0\x04\0\x10\0data\0\0\0\0", 1, 44, wav);
     uint64_t sound = 0xcbf29ce484222325ull, sound_frames = 0;
     int32_t sound_peak = 0;
-    if (!tfx_mac_session_start(&s, argv[1], argv[2])) {
+    s.files.pack = zipped ? &pack : NULL;
+    if (!tfx_mac_session_start(&s, zipped ? "" : argv[1], argv[2])) {
         fprintf(stderr, "%s\n", s.error[0] ? s.error : "no core");
         return s.error[0] ? 3 : 1;
     }

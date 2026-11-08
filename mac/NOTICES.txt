@@ -7,11 +7,19 @@ pictures, sounds, music, levels, missions or tables of game values. The
 translated program keeps the original program's own texts where it uses
 them (its messages, labels, keywords and file names). It runs only with
 the user's own copy of the supported release (Ocean's CD edition, 1995),
-which it reads in place and never modifies. TFX and its
+which it never modifies: it reads the folder once and keeps its own
+compressed copy of the game's files (and of the user's CD image, when
+one is chosen) in the user's Library, ~/Library/Application Support/TFX/Content. TFX and its
 content belong to their owners (developed by Digital Image Design,
 published by Ocean Software); this build is not affiliated with them.
 
-This is a private build, not for distribution.
+The application's own code is released under the MIT licence
+(Copyright (c) 2026 Onur BUYUKCAGLAR): TFX > About TFX shows it, and the
+project is at https://github.com/Buyukcaglar/tfx-enh. The licence covers
+that code, not the game.
+
+The copies' formats (zip with deflate; MAME's CHD with its cdzl and cdfl
+codecs, FLAC frames) are written by the program's own code: no library.
 
 Third-party software: none is included. The application uses the
 operating system's own libraries, which are part of macOS and are not

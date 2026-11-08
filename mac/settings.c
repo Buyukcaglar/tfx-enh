@@ -27,6 +27,7 @@ void tfx_mac_settings_load(tfx_mac_settings *m, const tfx_mac_files *f, uint64_t
         /* (where it came from: the store's copy wins, as the files read) */
         tfx_mac_files store_only = *f;
         memcpy(store_only.root, f->store, sizeof store_only.root);
+        store_only.pack = NULL;
         m->from = tfx_mac_size(&store_only, "TFX.CFG") ? TFX_MAC_CFG_STORE : TFX_MAC_CFG_GAME;
         /* text mode: CRLF read as LF */
         uint32_t w = 0;
@@ -79,25 +80,23 @@ int tfx_mac_cal_present(tfx_mac_cal_port *p) { return tfx_stick_probe(&p->st, &p
 #define ABOUT_MAX 1024
 
 int tfx_mac_settings_about(const tfx_mac_files *f, char *out, size_t cap) {
-    char path[TFX_MAC_PATH + 16], digest[65];
-    snprintf(path, sizeof path, "%s/CONFIG.EXE", f->root);
-    if (cap == 0 || !tfx_mac_sha256_file(path, digest) ||
-        strcmp(digest, "b97c4f32a7cf7183a8978fbb0717f95cbb71fe803cf34362150e8fa020006504"))
-        return 0;
-    FILE *in = fopen(path, "rb");
-    char buf[ABOUT_MAX];
-    size_t n = 0;
-    if (in && !fseek(in, ABOUT_AT, SEEK_SET))
-        n = fread(buf, 1, sizeof buf, in);
-    if (in)
-        fclose(in);
-    char *end = memchr(buf, 0, n);
-    if (!end)
-        return 0;
-    size_t k = (size_t)(end - buf) < cap - 1 ? (size_t)(end - buf) : cap - 1;
-    memcpy(out, buf, k);
-    out[k] = 0;
-    return 1;
+    /* (the originals' CONFIG.EXE: the folder's, or the program's copy) */
+    tfx_mac_files originals = *f;
+    originals.store[0] = 0;
+    uint32_t size = tfx_mac_size(&originals, "CONFIG.EXE");
+    uint8_t *exe = size == 341897 ? malloc(size) : NULL;
+    char digest[65];
+    int ok = exe && tfx_mac_read(&originals, "CONFIG.EXE", exe, size) && (tfx_mac_sha256_bytes(exe, size, digest), 1) &&
+             !strcmp(digest, "b97c4f32a7cf7183a8978fbb0717f95cbb71fe803cf34362150e8fa020006504") && cap > 0;
+    const char *buf = ok ? (const char *)exe + ABOUT_AT : NULL;
+    const char *end = ok ? memchr(buf, 0, ABOUT_MAX) : NULL;
+    if (end) {
+        size_t k = (size_t)(end - buf) < cap - 1 ? (size_t)(end - buf) : cap - 1;
+        memcpy(out, buf, k);
+        out[k] = 0;
+    }
+    free(exe);
+    return end != NULL;
 }
 
 void tfx_mac_sound_describe(int soundfx, int music, int cd, char *out, size_t cap) {

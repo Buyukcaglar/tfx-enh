@@ -1,0 +1,28 @@
+{
+  "title": "TFX Enhanced",
+  "repo": "Buyukcaglar/tfx-enh",
+  "accent": "#3a7ca5",
+  "note": {
+    "default": "Nothing is compiled: the setup downloads this project's newest Windows release from GitHub (about 1 MB) and points it at your copy. It takes under a minute and needs the installed folder of TFX 2.0, Ocean's CD edition (the one that holds TFX.DAT and DID.DAT). Windows only."
+  },
+  "game": {
+    "name": "TFX 2.0 (Ocean CD edition)",
+    "files": [
+      "TFX.DAT",
+      "DID.DAT"
+    ]
+  },
+  "setup": {
+    "windows": [
+      "powershell",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "launcher\\setup.ps1",
+      "-Game",
+      "{game}"
+    ]
+  },
+  "play": "* (recomp).cmd"
+}

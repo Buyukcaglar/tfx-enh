@@ -1,0 +1,145 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "TFX Enhanced",
+  "repo": "Buyukcaglar/tfx-enh",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your installed folder of TFX version 2.0 (Ocean's CD edition): the folder that holds TFX.DAT and DID.DAT.",
+      "formats": [
+        {
+          "type": "folder"
+        }
+      ],
+      "check": {
+        "file": "TFX.DAT"
+      }
+    }
+  ],
+  "start": {
+    "program": [
+      "tfx.exe",
+      "TFX.app"
+    ],
+    "args": [
+      "--game",
+      "{input:game}"
+    ],
+    "env": {
+      "TFX_ORIGINAL_DIR": "{input:game}"
+    }
+  },
+  "saves": [
+    "{install}/SAVE"
+  ],
+  "folders": {
+    "saves": [
+      {
+        "path": "{install}/SAVE"
+      }
+    ]
+  },
+  "settings": [
+    {
+      "id": "fullscreen",
+      "label": "Full screen",
+      "in": "args",
+      "help": "Starts in full screen instead of a window.",
+      "choices": [
+        {
+          "label": "Window",
+          "args": []
+        },
+        {
+          "label": "Full screen",
+          "args": [
+            "--fullscreen"
+          ]
+        }
+      ],
+      "group": "Picture"
+    },
+    {
+      "id": "scale",
+      "label": "Scaling",
+      "in": "args",
+      "help": "How the picture fills the window.",
+      "choices": [
+        {
+          "label": "Game's option",
+          "args": []
+        },
+        {
+          "label": "4:3",
+          "args": [
+            "--scale",
+            "aspect"
+          ]
+        },
+        {
+          "label": "Whole numbers",
+          "args": [
+            "--scale",
+            "integer"
+          ]
+        },
+        {
+          "label": "Stretch",
+          "args": [
+            "--scale",
+            "stretch"
+          ]
+        },
+        {
+          "label": "Square pixels",
+          "args": [
+            "--scale",
+            "square"
+          ]
+        }
+      ],
+      "group": "Picture"
+    },
+    {
+      "id": "enhanced",
+      "label": "Enhanced 3D",
+      "in": "args",
+      "help": "Starts with the sharper 3D picture. Ctrl+Shift+G switches it while you fly.",
+      "choices": [
+        {
+          "label": "Original",
+          "args": []
+        },
+        {
+          "label": "Enhanced",
+          "args": [
+            "--enhanced"
+          ]
+        }
+      ],
+      "group": "Picture"
+    }
+  ],
+  "actions": [
+    {
+      "id": "saves",
+      "label": "Saves",
+      "help": "Open the folder your saves are in.",
+      "open": "saves"
+    }
+  ],
+  "exit_codes": {
+    "1": "It stopped: your game folder may be another edition of TFX. This needs version 2.0, Ocean's CD edition.",
+    "2": "It couldn't start: your game folder is incomplete. Pick your game folder again on the game's page.",
+    "3": "It couldn't start: the game folder or the place for its saves couldn't be used. Pick your game folder again on the game's page."
+  },
+  "system": {
+    "windows": {
+      "version": "10"
+    },
+    "macos": {
+      "version": "11"
+    }
+  }
+}

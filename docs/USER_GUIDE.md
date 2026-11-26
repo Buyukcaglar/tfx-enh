@@ -33,6 +33,13 @@ Windows SmartScreen may warn about an unknown publisher the first time: the
 program is not code-signed. Choose *More info → Run anyway* if you trust
 the download.
 
+**Through a launcher.** [RecompLauncher](https://recomplauncher.com) can
+install the program for you: you pick your TFX folder once on the game's
+page there, and Play starts `tfx.exe --game "your TFX folder"` (section 9),
+so the folder question of section 3 does not appear. Your saves are in
+`SAVE\` in the folder the launcher installed the program into. The launcher
+does not contain or download the game.
+
 ## 3. The first start
 
 1. **Choose your TFX folder.** The program asks for the folder of your

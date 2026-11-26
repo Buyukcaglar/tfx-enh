@@ -1,5 +1,7 @@
 # TFX Enhanced
 
+<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 A native Windows version of **TFX** (*Tactical Fighter Experiment*), Digital
 Image Design's DOS flight simulator, published by Ocean Software. It runs the
 game directly on Windows, with no DOS emulator, from your own copy of the
@@ -15,6 +17,27 @@ game, and adds a few things the original never had.
 
 Get `tfx.exe` from the [latest release](../../releases/latest). It is a
 single 64-bit program for Windows 10 and 11; nothing to install.
+
+## Playing through a launcher
+
+Two launchers can install TFX Enhanced and start it with your game folder.
+Neither contains or downloads the game: you need your own installed TFX
+either way.
+
+- **[RecompLauncher](https://recomplauncher.com)**: install TFX Enhanced
+  there (it takes the latest release), pick your game folder once and press
+  Play. The folder is your installed TFX 2.0 (Ocean's CD edition), the one
+  that holds `TFX.DAT` and `DID.DAT`; Play starts `tfx.exe --game <folder>`.
+  Full screen, scaling and Enhanced 3D are settings on the game's page.
+  Pilots and settings are in `SAVE\` beside the program, and the page opens
+  that folder.
+- **[sp00nznet's recomp-launcher](https://github.com/sp00nznet/recomp-launcher)**
+  (Windows): from the next tagged version on, the release carries
+  `TFX-Enhanced-Installer-windows-x64.exe`. It finds or asks for your game
+  folder, downloads this project's latest Windows release and shows a Play
+  button. Until then, `launcher\setup.ps1 -Game "<folder>"`, run by hand
+  from a copy of this repository, does the same and leaves
+  `TFX (recomp).cmd` in the repository's root.
 
 ## Enhanced 3D on the fly
 
@@ -69,6 +92,9 @@ The source published here is the project's own code around the game:
 | `include/tfx/core.h` | the interface between the host and the game core |
 | `mac/` | the macOS host |
 | `tests/test_pack.c` | tests of the file formats (deflate, FLAC, zip, CHD) |
+| `recomplauncher.json` | what RecompLauncher reads: the game folder to pick, how Play starts the program, the settings, the saves folder; a copy is in every release archive |
+| `launcher/` | `launcher.json` and `setup.ps1` for sp00nznet's recomp-launcher: the setup downloads the latest Windows release and writes `TFX (recomp).cmd` |
+| `.github/workflows/installer.yml` | builds that launcher's installer; a `v*` tag attaches it to the tag's release |
 
 The game core itself, a translation of the original program, is **not**
 published, so the full program does not build from this repository; the

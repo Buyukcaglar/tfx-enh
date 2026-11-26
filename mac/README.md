@@ -124,8 +124,8 @@ spctl --assess --type execute -vv TFX.app
 
 ## Running
 
-`TFX.app` finds the game folder in `TFX_ORIGINAL_DIR`, then in the saved
-choice, otherwise it asks for a folder (one containing `DID.DAT`,
+`TFX.app` finds the game folder in `--game <folder>`, then in
+`TFX_ORIGINAL_DIR`, then in the saved choice, otherwise it asks for a folder (one containing `DID.DAT`,
 `TFX.DAT` and `START.EXE`); each must be the supported release, and a
 failure names the reason and offers another folder (File > Choose Game
 Folder…, Command-O, at any time). The game's writes (configuration,
@@ -143,7 +143,12 @@ Saved Data… / Export Saved Data… / Restore a Previous Version… handle
 the game's saved files (M07; the last three replaced versions of each are
 kept in the store's `.history`). A store that cannot be written stops
 the start with the reason (M08), before the game would find it at its
-next save. The mouse's motion steers the ARCADE and mouse-controlled
+next save. As on Windows (for RecompLauncher, 26 November 2026),
+`--fullscreen` starts in full screen and `--scale aspect|integer|stretch|square`
+places the picture for that run (View > Integer Scaling still switches,
+and is what is remembered); `--game` without `TFX_ORIGINAL_DIR` makes the
+copies from that folder, as a chosen folder does, and with it the folder
+is read directly. The mouse's motion steers the ARCADE and mouse-controlled
 flight; View > Capture the Mouse (Control-Command-M) hides and holds the
 cursor so the steering does not stop at the window's edge (M09).
 Control-Shift-G (View > Enhanced 3D; `--enhanced` starts in it) toggles

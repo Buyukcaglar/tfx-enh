@@ -35,7 +35,14 @@
  * Runs given TFX_ORIGINAL_DIR (the checks) read the folder as before unless
  * --pack; --no-pack always reads the folder. TFX > About TFX: the program's
  * credits, the project's link and the licence (as the Windows host's About
- * box), the game held meanwhile. */
+ * box), the game held meanwhile.
+ *
+ * The command line (launcher support, 2026-11-26, as the Windows host's
+ * options): --game DIR, the folder before TFX_ORIGINAL_DIR's and the one
+ * chosen last (the copies made from it, as from a chosen folder, unless
+ * TFX_ORIGINAL_DIR is set too); --fullscreen starts in full screen;
+ * --scale aspect|integer|stretch|square places the picture for this run
+ * (View > Integer Scaling still switches, and is what is remembered). */
 #import <AppKit/AppKit.h>
 #import <GameController/GameController.h>
 #import <QuartzCore/QuartzCore.h>
@@ -75,6 +82,22 @@ static void clock_pause(BOOL on) {
 static uint64_t session_now(void *ctx) { return (void)ctx, game_now(); }
 
 /* ~/Library/Application Support/TFX/<name>, created */
+/* the value after option name on the command line, nil when absent */
+static NSString *arg_value(NSString *name) {
+    NSArray *args = NSProcessInfo.processInfo.arguments;
+    NSUInteger i = [args indexOfObject:name];
+    return i != NSNotFound && i + 1 < args.count ? args[i + 1] : nil;
+}
+
+/* --scale's mode for this run (-1: none given, or View > Integer Scaling used since) */
+static int scale_arg = -1;
+
+static int fit_mode(void) {
+    if (scale_arg >= 0)
+        return scale_arg;
+    return [NSUserDefaults.standardUserDefaults boolForKey:@"IntegerScaling"] ? TFX_MAC_FIT_INTEGER : TFX_MAC_FIT_ASPECT;
+}
+
 static NSString *support_folder(NSString *name) {
     NSURL *u = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
                                                     inDomains:NSUserDomainMask]
@@ -161,8 +184,7 @@ static void release_pixels(void *info, const void *data, size_t size) { (void)in
  * integer scaling is whole device pixels */
 - (NSRect)imageRect {
     NSRect b = [self convertRectToBacking:self.bounds];
-    BOOL integer = [NSUserDefaults.standardUserDefaults boolForKey:@"IntegerScaling"];
-    tfx_mac_rect r = tfx_mac_fit(b.size.width, b.size.height, integer);
+    tfx_mac_rect r = tfx_mac_fit(b.size.width, b.size.height, fit_mode());
     return [self convertRectFromBacking:NSMakeRect(round(r.x), round(r.y), round(r.w), round(r.h))];
 }
 
@@ -466,12 +488,15 @@ static void work_progress(void *ctx, unsigned done, unsigned total) {
     }
 }
 
-/* the original game folder: the environment's, the last chosen, else asked */
+/* the original game folder: --game's, the environment's, the last chosen, else asked */
 - (NSString *)gameFolder {
+    NSString *given = arg_value(@"--game");
+    if (given) /* (relative to the current folder, as on Windows) */
+        given = [NSURL fileURLWithPath:given.stringByExpandingTildeInPath].path;
     NSString *env = NSProcessInfo.processInfo.environment[@"TFX_ORIGINAL_DIR"];
     NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kFolder];
     NSString *problem = nil;
-    for (NSString *d in @[ env ? env : @"", last ? last : @"" ]) {
+    for (NSString *d in @[ given ? given : @"", env ? env : @"", last ? last : @"" ]) {
         if (!d.length)
             continue;
         NSString *why = [self problemWith:d];
@@ -862,7 +887,8 @@ static void collect(void *ctx, const char *name, int written, const char *why) {
 }
 
 - (void)toggleInteger:(NSMenuItem *)item {
-    BOOL on = ![NSUserDefaults.standardUserDefaults boolForKey:@"IntegerScaling"];
+    BOOL on = fit_mode() != TFX_MAC_FIT_INTEGER;
+    scale_arg = -1; /* (from now on the menu's choice, as before) */
     [NSUserDefaults.standardUserDefaults setBool:on forKey:@"IntegerScaling"];
     item.state = on ? NSControlStateValueOn : NSControlStateValueOff;
     [_view layoutImage];
@@ -986,8 +1012,7 @@ static NSString *const kLicense =
     fs.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
     NSMenuItem *integer = [view addItemWithTitle:@"Integer Scaling" action:@selector(toggleInteger:) keyEquivalent:@""];
     integer.target = self;
-    integer.state = [NSUserDefaults.standardUserDefaults boolForKey:@"IntegerScaling"] ? NSControlStateValueOn
-                                                                                       : NSControlStateValueOff;
+    integer.state = fit_mode() == TFX_MAC_FIT_INTEGER ? NSControlStateValueOn : NSControlStateValueOff;
     [view addItem:NSMenuItem.separatorItem];
     NSMenuItem *capture = [view addItemWithTitle:@"Capture the Mouse" action:@selector(toggleCapture:) keyEquivalent:@"m"];
     capture.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
@@ -1008,6 +1033,12 @@ static NSString *const kLicense =
       [NSApp terminate:nil];
     });
     dispatch_resume(_sigterm);
+    NSString *scale = arg_value(@"--scale");
+    if (scale) /* (an unknown mode: 4:3, as on Windows) */
+        scale_arg = [scale isEqualToString:@"integer"] ? TFX_MAC_FIT_INTEGER
+                    : [scale isEqualToString:@"stretch"] ? TFX_MAC_FIT_STRETCH
+                    : [scale isEqualToString:@"square"]  ? TFX_MAC_FIT_SQUARE
+                                                         : TFX_MAC_FIT_ASPECT;
     [self menus];
     /* the copies (an addition, as the Windows host's GAME folder): the
      * game's files from Content/TFX.ZIP and the CD from TFX.CHD, made from
@@ -1017,7 +1048,7 @@ static NSString *const kLicense =
     const char *dir_env = getenv("TFX_ORIGINAL_DIR");
     _copies = ![args containsObject:@"--no-pack"] && (!dir_env || [args containsObject:@"--pack"]);
     NSString *folder = nil;
-    if (_copies && !dir_env && [self openPack]) {
+    if (_copies && !dir_env && !arg_value(@"--game") && [self openPack]) {
         NSString *last = [NSUserDefaults.standardUserDefaults stringForKey:kFolder];
         folder = last ? last : zip_path();
     } else {
@@ -1067,6 +1098,8 @@ static NSString *const kLicense =
     [_window makeKeyAndOrderFront:nil];
     [_window makeFirstResponder:_view];
     [NSApp activateIgnoringOtherApps:YES];
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"--fullscreen"])
+        [_window toggleFullScreen:nil];
     _activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiated | NSActivityLatencyCritical
                                                              reason:@"the game runs"];
     for (NSNotificationName name in @[ GCControllerDidConnectNotification, GCControllerDidDisconnectNotification ])

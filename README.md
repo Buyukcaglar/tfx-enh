@@ -28,7 +28,9 @@ either way.
   that holds `TFX.DAT` and `DID.DAT`; Play starts `tfx.exe --game <folder>`.
   Full screen, scaling and Enhanced 3D are settings on the game's page.
   Pilots and settings are in `SAVE\` beside the program, and the page opens
-  that folder.
+  that folder. On a Mac (the macOS zip of 26 November 2026 or later) Play
+  starts `TFX.app` the same way; there the pilots and settings are in
+  `~/Library/Application Support/TFX/Game`.
 - **[sp00nznet's recomp-launcher](https://github.com/sp00nznet/recomp-launcher)**
   (Windows): from the next tagged version on, the release carries
   `TFX-Enhanced-Installer-windows-x64.exe`. It finds or asks for your game

@@ -31,12 +31,17 @@
     }
   },
   "saves": [
-    "{install}/SAVE"
+    "{install}/SAVE",
+    "{home}/Library/Application Support/TFX/Game"
   ],
   "folders": {
     "saves": [
       {
-        "path": "{install}/SAVE"
+        "path": "{install}/SAVE",
+        "if": "{install}/tfx.exe"
+      },
+      {
+        "path": "{home}/Library/Application Support/TFX/Game"
       }
     ]
   },

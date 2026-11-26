@@ -1,7 +1,5 @@
 # TFX Enhanced
 
-<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
-
 A native Windows version of **TFX** (*Tactical Fighter Experiment*), Digital
 Image Design's DOS flight simulator, published by Ocean Software. It runs the
 game directly on Windows, with no DOS emulator, from your own copy of the
@@ -112,3 +110,5 @@ The project's own code is under the [MIT licence](LICENSE). TFX, its program
 and its data belong to their owners and are not part of this software.
 
 Made by Onur BUYUKCAGLAR, with Anthropic Claude AI assistance.
+
+<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
